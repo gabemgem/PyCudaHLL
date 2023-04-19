@@ -7,32 +7,33 @@ def hash_string(s):
     s = s.encode('utf-8')
     return struct.unpack('!Q', sha1(s).digest()[:8])[0]
 
+# val_per_thread -> should be number of elements / number of threads
+#   in cuda terms, number of elements / (blockSize * gridSize)
 find_max_kernel = cp.RawKernel(r'''
     extern "C" __global__
     void find_max(
-        const unsigned long long* indices, 
-        const unsigned long long* vals, 
-        const unsigned long val_per_thread,
-        const unsigned long indices_range,
-        unsigned long long* max) {
+        const unsigned long long* buckets, // array -> a bucket index for each val
+        const unsigned long long* vals, // array -> a count of leading zeros+1 for each element
+        const unsigned long val_per_thread, // number of elements each thread should process
+        const unsigned long num_buckets, // total number of buckets
+        unsigned long long* max // output array -> size = (num threads) x (num buckets)
+    ) {
         int tid = blockDim.x * blockIdx.x + threadIdx.x;
         int val_i = tid * val_per_thread;
-        int max_i = tid * indices_range;
+        int max_i = tid * num_buckets;
         for(int count = 0; count < val_per_thread; count++) {
             int element = val_i+count;
-            max[max_i+indices[element]] = (max[max_i+indices[element]] > vals[element]) ?
-                max[max_i+indices[element]] : vals[element];
-            //max[max_i+count] = vals[element];
+            max[max_i+buckets[element]] = (max[max_i+buckets[element]] > vals[element]) ?
+                max[max_i+buckets[element]] : vals[element];
         }
-        //max[max_i] = max_i;
     }
 ''', 'find_max')
 
 
 kernel = cp.ElementwiseKernel(
-    'uint64 x, uint64 m, uint64 p', 'uint64 index, uint64 leading_zeros',
+    'uint64 x, uint64 m, uint64 p', 'uint64 bucket, uint64 leading_zeros',
     '''
-    index = x & m;
+    bucket = x & m;
     unsigned int w = x >> p;
 
     for(unsigned int count = 0; count < 64; count++) {
@@ -45,20 +46,35 @@ kernel = cp.ElementwiseKernel(
     '''
 )
 
-x = cp.array([4,18,9,35], dtype='uint64')
-index, leading_zeros = kernel(x, 3, 2)
+
+x = cp.array([4,18,9,35], dtype='uint64') # input array of hashed data
+num_elements = len(x) # total number of elements to process
+
+m = 3 # bit mask for bucket bits
+p = 2 # number of bucket bits
+num_buckets = 1 << p # total number of buckets = 2^p
+
+threads_per_block = 2 # should generally be a multiple of 32
+num_blocks = 2
+total_num_threads = num_blocks * threads_per_block
+vals_per_thread = num_elements / total_num_threads # number of values each thread should process
+
+# buckets is an array of bucket indices for each element
+# leading zeros is an array of number of leading zeros+1 for each element
+buckets, leading_zeros = kernel(x, m, p)
 
 print(f'{7:b}')
 print(f'{8:b}')
-print(index)
+print(buckets)
 print(leading_zeros)
 
-maxes = cp.zeros((4,4), dtype=cp.uint64)
-vals_per_thread = 1
-indices_range = 4
-find_max_kernel((2,), (2,), (index, leading_zeros, vals_per_thread, indices_range, maxes))
+# initial outputs per thread
+maxes = cp.zeros((total_num_threads,num_buckets), dtype=cp.uint64)
+find_max_kernel((num_blocks,), (threads_per_block,), (buckets, leading_zeros, vals_per_thread, num_buckets, maxes))
 
 print(maxes)
+
+total_max = cp.amax(maxes, ax)
 
 
 
