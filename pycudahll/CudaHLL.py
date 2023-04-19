@@ -7,6 +7,26 @@ def hash_string(s):
     s = s.encode('utf-8')
     return struct.unpack('!Q', sha1(s).digest()[:8])[0]
 
+find_max_kernel = cp.RawKernel(r'''
+    extern "C" __global__
+    void find_max(
+        const unsigned long long* indices, 
+        const unsigned long long* vals, 
+        const unsigned long val_per_thread,
+        const unsigned long indices_range,
+        unsigned long long* max) {
+        int tid = blockDim.x * blockIdx.x + threadIdx.x;
+        int val_i = tid * val_per_thread;
+        int max_i = tid * indices_range;
+        for(int count = 0; count < val_per_thread; count++) {
+            int element = val_i+count;
+            max[max_i+indices[element]] = (max[max_i+indices[element]] > vals[element]) ?
+                max[max_i+indices[element]] : vals[element];
+            //max[max_i+count] = vals[element];
+        }
+        //max[max_i] = max_i;
+    }
+''', 'find_max')
 
 
 kernel = cp.ElementwiseKernel(
@@ -25,13 +45,20 @@ kernel = cp.ElementwiseKernel(
     '''
 )
 
-x = cp.array([7, 8], dtype='uint64')
-index, leading_zeros = kernel(x, 1, 1)
+x = cp.array([4,18,9,35], dtype='uint64')
+index, leading_zeros = kernel(x, 3, 2)
 
 print(f'{7:b}')
 print(f'{8:b}')
 print(index)
 print(leading_zeros)
+
+maxes = cp.zeros((4,4), dtype=cp.uint64)
+vals_per_thread = 1
+indices_range = 4
+find_max_kernel((2,), (2,), (index, leading_zeros, vals_per_thread, indices_range, maxes))
+
+print(maxes)
 
 
 
