@@ -5,7 +5,7 @@ def getExactCardinality(data):
 
 
 
-# with open('shakespeare.csv', 'r') as file:
+# with open('shakespeare_x_2_new_card.csv', 'r') as file:
 #     data = file.read().split(',')
 #     print(len(data))
 #     data_set = {val for val in data}

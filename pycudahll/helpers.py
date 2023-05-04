@@ -1,3 +1,7 @@
+import numpy as np
+import struct
+import math
+from hashlib import sha1
 
 rawEstimateData = [
   # precision 4
@@ -74,4 +78,50 @@ def estimate_bias(E, p):
 def get_nearest_neighbors(E, estimate_vector):
     distance_map = [((E - float(val)) ** 2, idx) for idx, val in enumerate(estimate_vector)]
     distance_map.sort()
-    return [idx for dist, idx in distance_map[:6]]y
+    return [idx for dist, idx in distance_map[:6]]
+
+def calcAlpha(p, numBuckets):
+    if p < 4 or p > 16:
+        raise ValueError(f'p={p} should be in the range [4 : 16]')
+    
+    if p == 4:
+        return 0.673
+    if p == 5:
+        return 0.697
+    if p == 6:
+        return 0.709
+    return 0.7213 / (1 + (1.079/numBuckets))
+
+
+def linearCounting(numBuckets, zeroElements):
+    # returns the linear counting cardinality estimate
+    return numBuckets * math.log(numBuckets/float(zeroElements))
+
+def threshold(p):
+    thresh = {
+        4: 10,
+        5: 20,
+        6: 40,
+        7: 80,
+        8: 220,
+        9: 400,
+        10: 900,
+        11: 1800,
+        12: 3100,
+        13: 6500,
+        14: 11500,
+        15: 20000,
+        16: 50000,
+        17: 120000,
+        18: 350000
+    }
+    if p in thresh:
+        return thresh[p]
+    return 0
+
+def hash_string(s):
+    s = s.encode('utf-8')
+    return struct.unpack('!Q', sha1(s).digest()[:8])[0]
+
+def hash_array(arr):
+    return [hash_string(val) for val in arr]
